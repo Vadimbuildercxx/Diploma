@@ -23,9 +23,10 @@ class YOLODetector(object):
         print("cuda is available" if torch.cuda.is_available() else "only cpu detected")
         self.img_size = img_size
         self.stride = stride
-        self.device = select_device(device)
+        self.device = torch.device(device) # select_device(device)
         self.half = self.device.type != 'cpu'
         # Load model
+        # weights = R"saved_weights\epoch_000.pt"
         self.model = attempt_load(weights, map_location=device)  # load FP32 model
         stride = int(self.model .stride.max())  # model stride
         imgsz = check_img_size(imgsz, s=stride)  # check img_size
@@ -33,7 +34,7 @@ class YOLODetector(object):
             self.model.half()  # to FP16
 
         # Get names and colors
-        self.names = self.model .module.names if hasattr(self.model , 'module') else self.model .names
+        self.names = self.model.module.names if hasattr(self.model, 'module') else self.model .names
         self.colors = [[random.randint(0, 255) for _ in range(3)] for _ in self.names]
         if self.device.type != 'cpu':
             self.model(torch.zeros(1, 3, self.img_size, self.img_size).to(self.device).type_as(

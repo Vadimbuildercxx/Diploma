@@ -1,20 +1,24 @@
+import asyncio
 import random
 
 import cv2
 import threading
 import torch
 import numpy as np
+import time
+import sched
 
 import face_embeddings
 from c_detect import YOLODetector
-#import face_embeddings
+
+from rmq_sender import RMQSender
+
 import os
 from PIL import Image
 
 caps = [0, 200, 300, 500, 600, 700, 800, 900, 910, 1000, 1100, 1200, 1300,
         1400, 1410, 1500, 1600, 1610, 1700, 1800, 1900, 2000, 2100, 2200, 2300, 2400]
-
-img_me = Image.open(R"C:\Users\vadim\AI\YOLOV\testData\test_images\bateman\bateman_face\bateman_fun.jpg")
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 class CameraManager(object):
 
@@ -48,7 +52,11 @@ class Camera(threading.Thread):
         else:
             self.name = name
 
-        self.detector = YOLODetector('cuda', R"saved_weights\best.pt", img_size=1280)
+        self.detector = YOLODetector('cuda', R"saved_weights\720x720.pt", img_size=1280)
+
+        self.sender = RMQSender(self.name, self.detector.names)
+        self.timer = Timer(2)
+
         self._is_running = False
         self.__detect_faces = detect_faces
         if self.__detect_faces:
@@ -82,6 +90,7 @@ class Camera(threading.Thread):
         assert isinstance(value, bool), 'Argument of wrong type!'
         self._is_running = value
 
+
     def run(self) -> None:
         """
         Extend threading. Thread run method. Start video capture from device id: cam_id
@@ -89,7 +98,9 @@ class Camera(threading.Thread):
         """
         print(f"Cam thread on {threading.current_thread().name} is running... \n")
         cv2.namedWindow(self.name)
+
         self.is_running = True
+
 
         if isinstance(self.source, int):
             cam_source = self.source + cv2.CAP_DSHOW
@@ -105,6 +116,7 @@ class Camera(threading.Thread):
         while r_val:
             if self.__detect_faces:
                 detections = self.detector.pred_pipeline_bboxes(frame)
+                #print(detections[:, 4:].tolist())
                 face_preds = self.extract_image_area(frame, detections)
                 for pred in face_preds:
                     _face_score, _path, _xyxy, _conf, _cls = (pred["face_score"], pred["face_path"],
@@ -113,9 +125,19 @@ class Camera(threading.Thread):
                     self.detector.plot_one_box(_xyxy, float(_conf.item()),
                                                _cls, float(_face_score.item()),
                                                _person_name, frame)
+
+                if detections.size(dim=0) != 0:
+                    if self.timer.pass_threshold() == -1:
+                        self.sender.send(detections)
+                        self.timer.start()
+                        print("Sending....")
+                        exit()
+                    elif self.timer.pass_threshold() == 1:
+                        self.timer.stop()
+                        print("Stopping....")
+
             else:
                 orig, frame, detections = self.detector.pred_pipeline_detected_and_bboxes(frame)
-
 
             cv2.imshow(self.name, frame)
             r_val, frame = cam.read()
@@ -125,6 +147,42 @@ class Camera(threading.Thread):
         self.is_running = False
         cv2.destroyWindow(self.name)
 
+
+class TimerError(Exception):
+    """A custom exception used to report errors in use of Timer class"""
+
+
+class Timer:
+    def __init__(self, threshold = 30):
+        self._start_time = None
+        self.threshold = threshold
+
+    def start(self):
+        """Start a new timer"""
+        if self._start_time is not None:
+            raise TimerError(f"Timer is running. Use .stop() to stop it")
+
+        self._start_time = time.perf_counter()
+
+    def elapsed_time(self):
+        return time.perf_counter() - self._start_time
+
+    def pass_threshold(self) -> int:
+        if self._start_time is None:
+            return -1
+        if self.elapsed_time() < self.threshold:
+            return 0
+        else:
+            return 1
+
+    def stop(self):
+        """Stop the timer, and report the elapsed time"""
+        if self._start_time is None:
+            raise TimerError(f"Timer is not running. Use .start() to start it")
+
+        elapsed_time = self.elapsed_time()
+        self._start_time = None
+        print(f"Elapsed time: {elapsed_time:0.4f} seconds")
 
 
 

@@ -4,9 +4,9 @@ import torch
 def main():
 
     cam_manager = ai_cameras.CameraManager()
-    cam_manager.create_cam(device_id=R"C:\Users\vadim\AI\YOLOV\testData\test_videos\American Psycho - Business Card scene [HD - 720p] (online-video-cutter.com)_v.mp4")
-    cam_manager.create_cam(device_id=R"C:\Users\vadim\AI\YOLOV\testData\test_videos\Видеонаблюдение на предприятии - рабочая зона.mp4")
-    # # cam_manager.create_cam(device_id=2)
+    cam_manager.create_cam(device_id=R"C:\Users\Vadim\Documents\TestVideos\BB_dde3fde4-9086-4d2f-93c1-583b21d22d10_preview.mp4")
+    #cam_manager.create_cam(device_id=0)
+    #cam_manager.create_cam(device_id="http://207.255.200.10:50000/SnapshotJPEG?Resolution=640x480&Quality=Clarity&COUNTER")
     cam_manager.run_all()
     print(cam_manager.n_alive_cam_threads())
 
