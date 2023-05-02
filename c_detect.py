@@ -19,7 +19,7 @@ from utils.torch_utils import select_device, load_classifier, time_synchronized,
 class YOLODetector(object):
 
     def __init__(self, device: str, weights: str = "yolov7.pt",
-                 imgsz: int = 640, img_size=640, stride=32):
+                 img_size=640, stride=32): # imgsz: int = 640,
         print("cuda is available" if torch.cuda.is_available() else "only cpu detected")
         self.img_size = img_size
         self.stride = stride
@@ -29,7 +29,7 @@ class YOLODetector(object):
         # weights = R"saved_weights\epoch_000.pt"
         self.model = attempt_load(weights, map_location=device)  # load FP32 model
         stride = int(self.model .stride.max())  # model stride
-        imgsz = check_img_size(imgsz, s=stride)  # check img_size
+        imgsz = check_img_size(img_size, s=stride)  # check img_size
         if self.half:
             self.model.half()  # to FP16
 

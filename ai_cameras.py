@@ -1,5 +1,7 @@
 import asyncio
+from datetime import datetime
 import random
+from datetime import date
 
 import cv2
 import threading
@@ -25,8 +27,11 @@ class CameraManager(object):
     def __init__(self):
         self.cameras: list[Camera] = []
 
-    def create_cam(self, device_id, name=None):
-        cam = Camera(device_id, name)
+    def create_cam(self, device_id, weights, name=None,
+                   send_time_sec=2, detect_faces: bool = True,
+                   dataset_path: str = "person_faces",
+                   img_size=1280, stride=32):
+        cam = Camera(device_id, weights, name, send_time_sec, detect_faces, dataset_path, img_size, stride)
         self.cameras.append(cam)
 
     def run_all(self):
@@ -37,7 +42,11 @@ class CameraManager(object):
 
 
 class Camera(threading.Thread):
-    def __init__(self, source, name: str = None, detect_faces: bool = True) -> None:
+    def __init__(self, source, weights: str, name: str = None,
+                 send_time_sec=2, detect_faces: bool = True,
+                 dataset_path="person_faces",
+                 img_size=1280, stride=32,
+                 save_img_path = R"C:\Users\Vadim\source\repos\DiplomaAI\detections") -> None:
         """
         Camera thread realise thread from cam or video source
         :param source - id of cam device or video source
@@ -48,19 +57,21 @@ class Camera(threading.Thread):
         self.source = source
 
         if name is None:
-            self.name = "Camera " + str(source[:-5] if isinstance(source, str) else source)
+            self.name = str(source[:-5] if isinstance(source, str) else source) #"Camera " +
         else:
             self.name = name
 
-        self.detector = YOLODetector('cuda', R"saved_weights\720x720.pt", img_size=1280)
+        self.detector = YOLODetector('cuda', weights, img_size=img_size, stride=stride)
 
         self.sender = RMQSender(self.name, self.detector.names)
-        self.timer = Timer(2)
+        self.timer = Timer(send_time_sec)
 
         self._is_running = False
         self.__detect_faces = detect_faces
         if self.__detect_faces:
-            self.face_similarity = face_embeddings.FaceComparator(dataset_path="person_faces")
+            self.face_similarity = face_embeddings.FaceComparator(dataset_path=dataset_path)
+
+        self.save_img_path = save_img_path
 
     def extract_image_area(self, image_in: np.ndarray, detections):
         image = image_in.copy()
@@ -114,9 +125,10 @@ class Camera(threading.Thread):
             r_val = False
             print(f"!!! Cannot open cam thread on {threading.current_thread().name} ... \n")
         while r_val:
+
+            detections = self.detector.pred_pipeline_bboxes(frame)
+
             if self.__detect_faces:
-                detections = self.detector.pred_pipeline_bboxes(frame)
-                #print(detections[:, 4:].tolist())
                 face_preds = self.extract_image_area(frame, detections)
                 for pred in face_preds:
                     _face_score, _path, _xyxy, _conf, _cls = (pred["face_score"], pred["face_path"],
@@ -125,19 +137,27 @@ class Camera(threading.Thread):
                     self.detector.plot_one_box(_xyxy, float(_conf.item()),
                                                _cls, float(_face_score.item()),
                                                _person_name, frame)
-
-                if detections.size(dim=0) != 0:
-                    if self.timer.pass_threshold() == -1:
-                        self.sender.send(detections)
-                        self.timer.start()
-                        print("Sending....")
-                        exit()
-                    elif self.timer.pass_threshold() == 1:
-                        self.timer.stop()
-                        print("Stopping....")
-
             else:
                 orig, frame, detections = self.detector.pred_pipeline_detected_and_bboxes(frame)
+
+            if detections.size(dim=0) != 0:
+                if self.timer.pass_threshold() == -1:
+                    self.sender.send(detections)
+                    self.timer.start()
+                    print("Sending....")
+                    today = date.today()
+                    saved_folder_path = self.save_img_path + "/" + today.strftime("%m_%d_%Y")
+                    is_exist = os.path.exists(saved_folder_path)
+                    if not is_exist:
+                        # Create a new directory because it does not exist
+                        os.makedirs(saved_folder_path)
+                        print("The new directory is created!")
+                    saved_image_path = saved_folder_path + "/" + datetime.now().strftime("%H_%M_%S") + ".jpg"
+                    cv2.imwrite(saved_image_path, frame)
+
+                elif self.timer.pass_threshold() == 1:
+                    self.timer.stop()
+                    print("Stopping....")
 
             cv2.imshow(self.name, frame)
             r_val, frame = cam.read()
